@@ -296,3 +296,9 @@ def generate_catalogue_voice(data: VoiceCatalogueInput):
     except Exception as e:
         print("Gemini voice error:", e)
         raise HTTPException(status_code=500, detail=f"AI voice generation failed: {str(e)}")
+
+
+@app.get("/marketplace")
+def get_marketplace_products():
+    result = supabase.table("products").select("*, artisans(name, business_name, region)").order("created_at", desc=True).execute()
+    return {"products": result.data}
