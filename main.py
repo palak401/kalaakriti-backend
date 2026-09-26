@@ -300,5 +300,18 @@ def generate_catalogue_voice(data: VoiceCatalogueInput):
 
 @app.get("/marketplace")
 def get_marketplace_products():
-    result = supabase.table("products").select("*, artisans(name, business_name, region)").order("created_at", desc=True).execute()
-    return {"products": result.data}
+    products_result = supabase.table("products").select("*").order("created_at", desc=True).execute()
+    products = products_result.data
+
+    artisan_ids = list(set(p["artisan_id"] for p in products if p.get("artisan_id")))
+    artisans_map = {}
+
+    if artisan_ids:
+        artisans_result = supabase.table("artisans").select("id, name, business_name, region").in_("id", artisan_ids).execute()
+        for a in artisans_result.data:
+            artisans_map[a["id"]] = a
+
+    for p in products:
+        p["artisan_info"] = artisans_map.get(p.get("artisan_id"))
+
+    return {"products": products}
