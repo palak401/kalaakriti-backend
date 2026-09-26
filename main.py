@@ -67,6 +67,11 @@ class CatalogueInput(BaseModel):
     text: str
 
 
+class VoiceCatalogueInput(BaseModel):
+    audio_base64: str
+    mime_type: str = "audio/m4a"
+
+
 CATEGORY_MARGINS = {
     "textiles": 0.35,
     "pottery": 0.40,
@@ -78,9 +83,35 @@ CATEGORY_MARGINS = {
 }
 DEFAULT_MARGIN = 0.30
 
+CATALOGUE_PROMPT_TEMPLATE = """You are helping an Indian artisan create a product listing.
+{source_instruction}
+
+Generate a product listing. Respond with ONLY a valid JSON object, no markdown formatting, no code fences, in exactly this structure:
+
+{{
+  "title_english": "short catchy English product title",
+  "title_hindi": "short catchy Hindi title, or if the artisan spoke/wrote in a different Indian regional language, use THAT language instead (in its native script)",
+  "description_english": "2-3 sentence English product description, appealing to online buyers",
+  "description_hindi": "2-3 sentence description in Hindi, or the artisan's own regional language if that's what they used (in native script)",
+  "category": "one of: Textiles, Pottery, Jewelry, Woodwork, Leather, Paintings, Handicrafts, Other",
+  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
+  "seo_keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+  "detected_language": "name of the language the artisan spoke/wrote in"
+}}"""
+
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def parse_gemini_json(raw_text: str):
+    raw_text = raw_text.strip()
+    if raw_text.startswith("```"):
+        raw_text = raw_text.split("```")[1]
+        if raw_text.startswith("json"):
+            raw_text = raw_text[4:]
+        raw_text = raw_text.strip()
+    return json.loads(raw_text)
 
 
 @app.get("/")
@@ -231,36 +262,37 @@ def calculate_pricing(data: PricingData):
 
 @app.post("/generate-catalogue")
 def generate_catalogue(data: CatalogueInput):
-    prompt = f"""You are helping an Indian artisan create a product listing.
-The artisan described their product (in Hindi, English, or a mix) as:
-
-"{data.text}"
-
-Generate a product listing. Respond with ONLY a valid JSON object, no markdown formatting, no code fences, in exactly this structure:
-
-{{
-  "title_english": "short catchy English product title",
-  "title_hindi": "short catchy Hindi product title (in Devanagari script)",
-  "description_english": "2-3 sentence English product description, appealing to online buyers",
-  "description_hindi": "2-3 sentence Hindi product description (in Devanagari script)",
-  "category": "one of: Textiles, Pottery, Jewelry, Woodwork, Leather, Paintings, Handicrafts, Other",
-  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
-  "seo_keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"]
-}}"""
+    source_instruction = f'The artisan described their product (in Hindi, English, or a mix) as:\n\n"{data.text}"'
+    prompt = CATALOGUE_PROMPT_TEMPLATE.format(source_instruction=source_instruction)
 
     try:
         model = genai.GenerativeModel("gemini-3.8-flash")
         response = model.generate_content(prompt)
-        raw_text = response.text.strip()
-
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("```")[1]
-            if raw_text.startswith("json"):
-                raw_text = raw_text[4:]
-            raw_text = raw_text.strip()
-
-        parsed = json.loads(raw_text)
+        parsed = parse_gemini_json(response.text)
         return {"success": True, "catalogue": parsed}
     except Exception as e:
         print("Gemini error:", e)
         raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
+
+
+@app.post("/generate-catalogue-voice")
+def generate_catalogue_voice(data: VoiceCatalogueInput):
+    source_instruction = (
+        "The artisan described their product by speaking, in the audio clip provided. "
+        "First understand what language they spoke in, then use that same language for the "
+        "regional-language fields below."
+    )
+    prompt = CATALOGUE_PROMPT_TEMPLATE.format(source_instruction=source_instruction)
+
+    try:
+        audio_bytes = base64.b64decode(data.audio_base64)
+        model = genai.GenerativeModel("gemini-3.8-flash")
+        response = model.generate_content([
+            {"mime_type": data.mime_type, "data": audio_bytes},
+            prompt,
+        ])
+        parsed = parse_gemini_json(response.text)
+        return {"success": True, "catalogue": parsed}
+    except Exception as e:
+        print("Gemini voice error:", e)
+        raise HTTPException(status_code=500, detail=f"AI voice generation failed: {str(e)}")
