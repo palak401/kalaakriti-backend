@@ -1,4 +1,6 @@
 import os
+import base64
+import uuid
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -42,6 +44,7 @@ class ProductData(BaseModel):
     description: str = ""
     category: str = ""
     price: float = 0
+    image_url: str = ""
 
 
 class PricingData(BaseModel):
@@ -49,6 +52,10 @@ class PricingData(BaseModel):
     labour_cost: float
     packaging_cost: float
     category: str = ""
+
+
+class ImageUploadData(BaseModel):
+    image_base64: str
 
 
 CATEGORY_MARGINS = {
@@ -141,6 +148,24 @@ def login(data: LoginData):
     }
 
 
+@app.post("/upload-image")
+def upload_image(data: ImageUploadData):
+    try:
+        image_bytes = base64.b64decode(data.image_base64)
+        filename = f"{uuid.uuid4()}.jpg"
+
+        supabase.storage.from_("product-images").upload(
+            filename, image_bytes, {"content-type": "image/jpeg"}
+        )
+
+        public_url = supabase.storage.from_("product-images").get_public_url(filename)
+
+        return {"success": True, "image_url": public_url}
+    except Exception as e:
+        print("Upload error:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/products")
 def add_product(data: ProductData):
     result = supabase.table("products").insert({
@@ -149,6 +174,7 @@ def add_product(data: ProductData):
         "description": data.description,
         "category": data.category,
         "price": data.price,
+        "image_url": data.image_url,
     }).execute()
 
     return {"success": True, "product": result.data[0]}
