@@ -44,6 +44,25 @@ class ProductData(BaseModel):
     price: float = 0
 
 
+class PricingData(BaseModel):
+    raw_material_cost: float
+    labour_cost: float
+    packaging_cost: float
+    category: str = ""
+
+
+CATEGORY_MARGINS = {
+    "textiles": 0.35,
+    "pottery": 0.40,
+    "jewelry": 0.50,
+    "woodwork": 0.35,
+    "leather": 0.35,
+    "paintings": 0.45,
+    "handicrafts": 0.35,
+}
+DEFAULT_MARGIN = 0.30
+
+
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -145,3 +164,31 @@ def get_products(artisan_id: str):
 def delete_product(product_id: str):
     supabase.table("products").delete().eq("id", product_id).execute()
     return {"success": True}
+
+
+@app.post("/pricing")
+def calculate_pricing(data: PricingData):
+    total_cost = data.raw_material_cost + data.labour_cost + data.packaging_cost
+
+    category_key = data.category.strip().lower()
+    margin_rate = CATEGORY_MARGINS.get(category_key, DEFAULT_MARGIN)
+
+    suggested_price = round(total_cost * (1 + margin_rate), 2)
+    margin_amount = round(suggested_price - total_cost, 2)
+
+    explanation = (
+        f"Total cost = ₹{data.raw_material_cost} (materials) + ₹{data.labour_cost} (labour) + "
+        f"₹{data.packaging_cost} (packaging) = ₹{total_cost}. "
+        f"A {int(margin_rate * 100)}% margin was applied "
+        f"({'category default for ' + category_key if category_key in CATEGORY_MARGINS else 'general default, since category was not recognized'}), "
+        f"adding ₹{margin_amount}. Suggested selling price: ₹{suggested_price}. "
+        f"This is a transparent rule-based calculation, not a machine learning prediction."
+    )
+
+    return {
+        "total_cost": total_cost,
+        "margin_rate": margin_rate,
+        "margin_amount": margin_amount,
+        "suggested_price": suggested_price,
+        "explanation": explanation,
+    }
