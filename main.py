@@ -249,7 +249,7 @@ Generate a product listing. Respond with ONLY a valid JSON object, no markdown f
 }}"""
 
     try:
-        model = genai.GenerativeModel("gemini-2.0-flash")
+        model = genai.GenerativeModel("gemini-3.8-flash")
         response = model.generate_content(prompt)
         raw_text = response.text.strip()
 
