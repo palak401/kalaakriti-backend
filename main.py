@@ -1,18 +1,23 @@
 import os
 import base64
 import uuid
+import json
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from supabase import create_client
 from dotenv import load_dotenv
 import hashlib
+import google.generativeai as genai
 
 load_dotenv()
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+genai.configure(api_key=GEMINI_API_KEY)
 
 app = FastAPI()
 
@@ -56,6 +61,10 @@ class PricingData(BaseModel):
 
 class ImageUploadData(BaseModel):
     image_base64: str
+
+
+class CatalogueInput(BaseModel):
+    text: str
 
 
 CATEGORY_MARGINS = {
@@ -218,3 +227,40 @@ def calculate_pricing(data: PricingData):
         "suggested_price": suggested_price,
         "explanation": explanation,
     }
+
+
+@app.post("/generate-catalogue")
+def generate_catalogue(data: CatalogueInput):
+    prompt = f"""You are helping an Indian artisan create a product listing.
+The artisan described their product (in Hindi, English, or a mix) as:
+
+"{data.text}"
+
+Generate a product listing. Respond with ONLY a valid JSON object, no markdown formatting, no code fences, in exactly this structure:
+
+{{
+  "title_english": "short catchy English product title",
+  "title_hindi": "short catchy Hindi product title (in Devanagari script)",
+  "description_english": "2-3 sentence English product description, appealing to online buyers",
+  "description_hindi": "2-3 sentence Hindi product description (in Devanagari script)",
+  "category": "one of: Textiles, Pottery, Jewelry, Woodwork, Leather, Paintings, Handicrafts, Other",
+  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
+  "seo_keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"]
+}}"""
+
+    try:
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        response = model.generate_content(prompt)
+        raw_text = response.text.strip()
+
+        if raw_text.startswith("```"):
+            raw_text = raw_text.split("```")[1]
+            if raw_text.startswith("json"):
+                raw_text = raw_text[4:]
+            raw_text = raw_text.strip()
+
+        parsed = json.loads(raw_text)
+        return {"success": True, "catalogue": parsed}
+    except Exception as e:
+        print("Gemini error:", e)
+        raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
