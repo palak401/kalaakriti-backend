@@ -93,18 +93,35 @@ CATEGORY_MARGINS = {
 }
 DEFAULT_MARGIN = 0.30
 
-CATALOGUE_PROMPT_TEMPLATE = """You are helping an Indian artisan create a product listing.
+LANGUAGE_SCRIPT_HINTS = {
+    "hindi": "Devanagari script",
+    "marathi": "Devanagari script (Marathi wording and grammar, NOT Hindi wording)",
+    "bengali": "Bengali script",
+    "tamil": "Tamil script",
+    "telugu": "Telugu script",
+    "gujarati": "Gujarati script",
+    "kannada": "Kannada script",
+    "malayalam": "Malayalam script",
+    "punjabi": "Gurmukhi script",
+    "odia": "Odia script",
+    "assamese": "Assamese script (Bengali-based script)",
+    "urdu": "Urdu script (Nastaliq/Arabic-based script)",
+}
+
+CATALOGUE_PROMPT_TEMPLATE = """You are helping an Indian artisan create a bilingual product listing.
 {source_instruction}
 
-The artisan has chosen "{language}" as their preferred regional language for this listing.
+CRITICAL INSTRUCTION: The artisan's chosen language for the regional fields is "{language}".
+You MUST write "title_regional" and "description_regional" in {language} language specifically, using {script_hint}.
+Do NOT default to Hindi unless {language} literally is Hindi. If you are unsure how to write in {language}, still make your best genuine attempt in that language's script and grammar - never silently substitute a different language.
 
-Generate a product listing. Respond with ONLY a valid JSON object, no markdown formatting, no code fences, in exactly this structure:
+Respond with ONLY a valid JSON object, no markdown formatting, no code fences, in exactly this structure:
 
 {{
   "title_english": "short catchy English product title",
-  "title_regional": "short catchy title written in {language} (in its native script)",
+  "title_regional": "short catchy title, written specifically in {language} ({script_hint})",
   "description_english": "2-3 sentence English product description, appealing to online buyers",
-  "description_regional": "2-3 sentence description written in {language} (in its native script)",
+  "description_regional": "2-3 sentence description, written specifically in {language} ({script_hint})",
   "category": "one of: Textiles, Pottery, Jewelry, Woodwork, Leather, Paintings, Handicrafts, Other",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
   "seo_keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
@@ -124,6 +141,15 @@ def parse_gemini_json(raw_text: str):
             raw_text = raw_text[4:]
         raw_text = raw_text.strip()
     return json.loads(raw_text)
+
+
+def build_catalogue_prompt(source_instruction: str, language: str) -> str:
+    script_hint = LANGUAGE_SCRIPT_HINTS.get(language.strip().lower(), f"{language}'s native script")
+    return CATALOGUE_PROMPT_TEMPLATE.format(
+        source_instruction=source_instruction,
+        language=language,
+        script_hint=script_hint,
+    )
 
 
 def enhance_image(image_bytes: bytes) -> bytes:
@@ -338,7 +364,7 @@ def calculate_pricing(data: PricingData):
 @app.post("/generate-catalogue")
 def generate_catalogue(data: CatalogueInput):
     source_instruction = f'The artisan described their product as:\n\n"{data.text}"'
-    prompt = CATALOGUE_PROMPT_TEMPLATE.format(source_instruction=source_instruction, language=data.language)
+    prompt = build_catalogue_prompt(source_instruction, data.language)
 
     try:
         model = genai.GenerativeModel("gemini-3.8-flash")
@@ -353,7 +379,7 @@ def generate_catalogue(data: CatalogueInput):
 @app.post("/generate-catalogue-voice")
 def generate_catalogue_voice(data: VoiceCatalogueInput):
     source_instruction = "The artisan described their product by speaking, in the audio clip provided."
-    prompt = CATALOGUE_PROMPT_TEMPLATE.format(source_instruction=source_instruction, language=data.language)
+    prompt = build_catalogue_prompt(source_instruction, data.language)
 
     try:
         audio_bytes = base64.b64decode(data.audio_base64)
