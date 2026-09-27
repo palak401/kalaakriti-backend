@@ -68,11 +68,13 @@ class ImageUploadData(BaseModel):
 
 class CatalogueInput(BaseModel):
     text: str
+    language: str = "Hindi"
 
 
 class VoiceCatalogueInput(BaseModel):
     audio_base64: str
     mime_type: str = "audio/m4a"
+    language: str = "Hindi"
 
 
 class ArtisanPhotoData(BaseModel):
@@ -94,17 +96,19 @@ DEFAULT_MARGIN = 0.30
 CATALOGUE_PROMPT_TEMPLATE = """You are helping an Indian artisan create a product listing.
 {source_instruction}
 
+The artisan has chosen "{language}" as their preferred regional language for this listing.
+
 Generate a product listing. Respond with ONLY a valid JSON object, no markdown formatting, no code fences, in exactly this structure:
 
 {{
   "title_english": "short catchy English product title",
-  "title_hindi": "short catchy Hindi title, or if the artisan spoke/wrote in a different Indian regional language, use THAT language instead (in its native script)",
+  "title_regional": "short catchy title written in {language} (in its native script)",
   "description_english": "2-3 sentence English product description, appealing to online buyers",
-  "description_hindi": "2-3 sentence description in Hindi, or the artisan's own regional language if that's what they used (in native script)",
+  "description_regional": "2-3 sentence description written in {language} (in its native script)",
   "category": "one of: Textiles, Pottery, Jewelry, Woodwork, Leather, Paintings, Handicrafts, Other",
   "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
   "seo_keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
-  "detected_language": "name of the language the artisan spoke/wrote in"
+  "regional_language": "{language}"
 }}"""
 
 
@@ -333,8 +337,8 @@ def calculate_pricing(data: PricingData):
 
 @app.post("/generate-catalogue")
 def generate_catalogue(data: CatalogueInput):
-    source_instruction = f'The artisan described their product (in Hindi, English, or a mix) as:\n\n"{data.text}"'
-    prompt = CATALOGUE_PROMPT_TEMPLATE.format(source_instruction=source_instruction)
+    source_instruction = f'The artisan described their product as:\n\n"{data.text}"'
+    prompt = CATALOGUE_PROMPT_TEMPLATE.format(source_instruction=source_instruction, language=data.language)
 
     try:
         model = genai.GenerativeModel("gemini-3.8-flash")
@@ -348,12 +352,8 @@ def generate_catalogue(data: CatalogueInput):
 
 @app.post("/generate-catalogue-voice")
 def generate_catalogue_voice(data: VoiceCatalogueInput):
-    source_instruction = (
-        "The artisan described their product by speaking, in the audio clip provided. "
-        "First understand what language they spoke in, then use that same language for the "
-        "regional-language fields below."
-    )
-    prompt = CATALOGUE_PROMPT_TEMPLATE.format(source_instruction=source_instruction)
+    source_instruction = "The artisan described their product by speaking, in the audio clip provided."
+    prompt = CATALOGUE_PROMPT_TEMPLATE.format(source_instruction=source_instruction, language=data.language)
 
     try:
         audio_bytes = base64.b64decode(data.audio_base64)
