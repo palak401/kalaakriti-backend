@@ -220,6 +220,14 @@ def login(data: LoginData):
     }
 
 
+@app.get("/artisan/{artisan_id}")
+def get_artisan_profile(artisan_id: str):
+    result = supabase.table("artisans").select("id, name, mobile, email, business_name, region, created_at").eq("id", artisan_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Artisan not found.")
+    return {"artisan": result.data[0]}
+
+
 @app.post("/upload-image")
 def upload_image(data: ImageUploadData):
     try:
