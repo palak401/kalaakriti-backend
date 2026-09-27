@@ -75,6 +75,11 @@ class VoiceCatalogueInput(BaseModel):
     mime_type: str = "audio/m4a"
 
 
+class ArtisanPhotoData(BaseModel):
+    artisan_id: str
+    image_base64: str
+
+
 CATEGORY_MARGINS = {
     "textiles": 0.35,
     "pottery": 0.40,
@@ -222,10 +227,32 @@ def login(data: LoginData):
 
 @app.get("/artisan/{artisan_id}")
 def get_artisan_profile(artisan_id: str):
-    result = supabase.table("artisans").select("id, name, mobile, email, business_name, region, created_at").eq("id", artisan_id).execute()
+    result = supabase.table("artisans").select("id, name, mobile, email, business_name, region, photo_url, created_at").eq("id", artisan_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Artisan not found.")
     return {"artisan": result.data[0]}
+
+
+@app.post("/artisan-photo")
+def update_artisan_photo(data: ArtisanPhotoData):
+    try:
+        image_bytes = base64.b64decode(data.image_base64)
+        image_bytes = enhance_image(image_bytes)
+
+        filename = f"artisan-{data.artisan_id}.jpg"
+
+        supabase.storage.from_("product-images").upload(
+            filename, image_bytes, {"content-type": "image/jpeg", "upsert": "true"}
+        )
+
+        public_url = supabase.storage.from_("product-images").get_public_url(filename)
+
+        supabase.table("artisans").update({"photo_url": public_url}).eq("id", data.artisan_id).execute()
+
+        return {"success": True, "photo_url": public_url}
+    except Exception as e:
+        print("Artisan photo error:", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/upload-image")
