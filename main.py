@@ -3,7 +3,6 @@ import base64
 import uuid
 import json
 import io
-from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -413,70 +412,3 @@ def get_marketplace_products():
         p["artisan_info"] = artisans_map.get(p.get("artisan_id"))
 
     return {"products": products}
-
-
-@app.get("/ondc-export/{artisan_id}")
-def ondc_export(artisan_id: str):
-    artisan_result = supabase.table("artisans").select("id, name, business_name, region, mobile, email").eq("id", artisan_id).execute()
-    if not artisan_result.data:
-        raise HTTPException(status_code=404, detail="Artisan not found.")
-    artisan = artisan_result.data[0]
-
-    products_result = supabase.table("products").select("*").eq("artisan_id", artisan_id).execute()
-    products = products_result.data
-
-    ondc_items = []
-    for p in products:
-        ondc_items.append({
-            "id": p["id"],
-            "descriptor": {
-                "name": p["title"],
-                "short_desc": p.get("description", "")[:100],
-                "long_desc": p.get("description", ""),
-                "images": [p["image_url"]] if p.get("image_url") else [],
-            },
-            "category_id": p.get("category", "Other"),
-            "price": {
-                "currency": "INR",
-                "value": str(p.get("price", 0)),
-            },
-            "quantity": {
-                "available": {"count": "1"}
-            },
-        })
-
-    ondc_payload = {
-        "context": {
-            "domain": "ONDC:RET10",
-            "country": "IND",
-            "city": artisan.get("region", ""),
-            "action": "on_search",
-            "core_version": "1.2.0",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        },
-        "message": {
-            "catalog": {
-                "bpp/descriptor": {
-                    "name": artisan.get("business_name", ""),
-                },
-                "bpp/providers": [
-                    {
-                        "id": artisan["id"],
-                        "descriptor": {
-                            "name": artisan.get("business_name", ""),
-                            "short_desc": f"Artisan-run business by {artisan.get('name', '')}, based in {artisan.get('region', '')}",
-                        },
-                        "items": ondc_items,
-                    }
-                ],
-            }
-        },
-        "_disclaimer": (
-            "This is a prototype export matching ONDC's general catalog structure, generated for the "
-            "Kalaakriti Smart India Hackathon submission. It is NOT a certified or production ONDC "
-            "integration - real integration requires formal registration as a Seller Network Participant "
-            "with ONDC, along with their full API and signing/security requirements."
-        ),
-    }
-
-    return ondc_payload
