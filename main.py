@@ -2,6 +2,7 @@ import os
 import base64
 import uuid
 import json
+import io
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -9,6 +10,7 @@ from supabase import create_client
 from dotenv import load_dotenv
 import hashlib
 import google.generativeai as genai
+from PIL import Image, ImageEnhance, ImageOps
 
 load_dotenv()
 
@@ -61,6 +63,7 @@ class PricingData(BaseModel):
 
 class ImageUploadData(BaseModel):
     image_base64: str
+    enhance: bool = True
 
 
 class CatalogueInput(BaseModel):
@@ -112,6 +115,35 @@ def parse_gemini_json(raw_text: str):
             raw_text = raw_text[4:]
         raw_text = raw_text.strip()
     return json.loads(raw_text)
+
+
+def enhance_image(image_bytes: bytes) -> bytes:
+    img = Image.open(io.BytesIO(image_bytes))
+    img = ImageOps.exif_transpose(img)
+    img = img.convert("RGB")
+
+    img = ImageOps.autocontrast(img, cutoff=1)
+
+    brightness = ImageEnhance.Brightness(img)
+    img = brightness.enhance(1.08)
+
+    color = ImageEnhance.Color(img)
+    img = color.enhance(1.12)
+
+    sharpness = ImageEnhance.Sharpness(img)
+    img = sharpness.enhance(1.2)
+
+    width, height = img.size
+    side = min(width, height)
+    left = (width - side) // 2
+    top = (height - side) // 2
+    img = img.crop((left, top, left + side, top + side))
+
+    img.thumbnail((1080, 1080))
+
+    output = io.BytesIO()
+    img.save(output, format="JPEG", quality=88)
+    return output.getvalue()
 
 
 @app.get("/")
@@ -192,6 +224,10 @@ def login(data: LoginData):
 def upload_image(data: ImageUploadData):
     try:
         image_bytes = base64.b64decode(data.image_base64)
+
+        if data.enhance:
+            image_bytes = enhance_image(image_bytes)
+
         filename = f"{uuid.uuid4()}.jpg"
 
         supabase.storage.from_("product-images").upload(
